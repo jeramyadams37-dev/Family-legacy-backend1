@@ -1,0 +1,81 @@
+import os
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, JSON, create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import relationship, sessionmaker
+from datetime import datetime
+
+# NEW (Production - Use Environment Variable):
+# This automatically detects if we are running on Render (which sets DATABASE_URL)
+# or locally (which doesn't).
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not DATABASE_URL:
+    # Fallback for local testing only
+    DATABASE_URL = "sqlite:///./harmony.db" 
+
+# Update engine creation for Postgres
+# SQLite needs "check_same_thread", but Postgres does not.
+if "sqlite" in DATABASE_URL:
+    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+else:
+    engine = create_engine(DATABASE_URL)
+
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+class Family(Base):
+    __tablename__ = "families"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    members = relationship("Member", back_populates="family")
+    fund = relationship("Fund", back_populates="family", uselist=False)
+    chats = relationship("ChatMessage", back_populates="family")
+
+class Member(Base):
+    __tablename__ = "members"
+    id = Column(Integer, primary_key=True, index=True)
+    family_id = Column(Integer, ForeignKey("families.id"))
+    name = Column(String)
+    role = Column(String) # e.g., 'parent', 'child'
+    
+    family = relationship("Family", back_populates="members")
+
+class Fund(Base):
+    __tablename__ = "funds"
+    id = Column(Integer, primary_key=True, index=True)
+    family_id = Column(Integer, ForeignKey("families.id"))
+    
+    # Storing as Float for simplicity, use Integer (cents) in real banking apps
+    balance = Column(Float, default=0.0) 
+    staked_balance = Column(Float, default=0.0)
+    total_earned = Column(Float, default=0.0)
+    
+    family = relationship("Family", back_populates="fund")
+    transactions = relationship("Transaction", back_populates="fund")
+
+class Transaction(Base):
+    __tablename__ = "transactions"
+    id = Column(Integer, primary_key=True, index=True)
+    fund_id = Column(Integer, ForeignKey("funds.id"))
+    amount = Column(Float)
+    type = Column(String) # e.g., 'data_reward', 'marketplace_sale'
+    description = Column(String)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    
+    fund = relationship("Fund", back_populates="transactions")
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+    id = Column(Integer, primary_key=True, index=True)
+    family_id = Column(Integer, ForeignKey("families.id"))
+    role = Column(String) # 'user' or 'assistant'
+    content = Column(String)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    
+    family = relationship("Family", back_populates="chats")
+
+# Create tables
+Base.metadata.create_all(bind=engine)
